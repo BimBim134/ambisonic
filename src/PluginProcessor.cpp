@@ -46,7 +46,7 @@ AmbiEncoderAudioProcessor::createLayout()
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{kGainParamId, 1}, "Gain",
-        juce::NormalisableRange<float>(kGainMinDb, kGainMaxDb, 0.01f), 0.0f,
+        juce::NormalisableRange<float>(kGainMinDb, kGainMaxDb, 0.01f), -15.0f,
         juce::AudioParameterFloatAttributes().withLabel("dB")));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
