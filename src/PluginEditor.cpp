@@ -1,5 +1,7 @@
 #include "PluginEditor.h"
 
+#include <cmath>
+
 namespace
 {
     constexpr int kMargin = 14;
@@ -62,7 +64,7 @@ void AmbiEncoderAudioProcessorEditor::ScopeComponent::drawMidSide(
     g.reduceClipRegion(rect.toNearestInt());
 
     const juce::Point<float> c = rect.getCentre();
-    const float R = juce::jmin(rect.getWidth(), rect.getHeight()) * 0.5f - 10.0f;
+    const float R = juce::jmin(rect.getWidth(), rect.getHeight()) * 0.5f - 22.0f;
     if (R <= 4.0f)
     {
         g.restoreState();
@@ -78,6 +80,48 @@ void AmbiEncoderAudioProcessorEditor::ScopeComponent::drawMidSide(
                c.y + R * 0.7071f, 1.0f);
     g.drawLine(c.x - R * 0.7071f, c.y + R * 0.7071f, c.x + R * 0.7071f,
                c.y - R * 0.7071f, 1.0f);
+
+    // Stereo-width guides ringed around the scope. The inner semi-circle marks
+    // the reference +/-90 deg source span ("before"); the outer one tracks the
+    // encoder's effective spread of -90*spread .. +90*spread ("after"). Angles
+    // are measured from 12 o'clock, matching the Lissajous orientation below.
+    const float halfPi = juce::MathConstants<float>::halfPi;
+    const float spread = proc_.apvts()
+                             .getRawParameterValue(
+                                 AmbiEncoderAudioProcessor::kSpreadParamId)
+                             ->load();
+    const float innerHalf = halfPi;
+    const float outerHalf =
+        juce::jlimit(0.0f, juce::MathConstants<float>::pi, halfPi * spread);
+
+    const float rInner = R + 4.0f;
+    const float rOuter = R + 14.0f;
+
+    auto drawArc = [&](float radius, float halfAngle, juce::Colour colour,
+                       float thickness)
+    {
+        juce::Path arc;
+        arc.addCentredArc(c.x, c.y, radius, radius, 0.0f, -halfAngle,
+                          halfAngle, true);
+        g.setColour(colour);
+        g.strokePath(arc, juce::PathStrokeType(thickness));
+    };
+    drawArc(rInner, innerHalf, ambi::palette::cyan.withAlpha(0.55f), 2.0f);
+    drawArc(rOuter, outerHalf, ambi::palette::magenta.withAlpha(0.85f), 2.5f);
+
+    // Radial end ticks so the swept width reads at a glance.
+    auto drawTick = [&](float radius, float angle, juce::Colour colour)
+    {
+        const float dx = std::sin(angle);
+        const float dy = -std::cos(angle);
+        g.setColour(colour);
+        g.drawLine(c.x + (radius - 4.0f) * dx, c.y + (radius - 4.0f) * dy,
+                   c.x + (radius + 4.0f) * dx, c.y + (radius + 4.0f) * dy, 1.5f);
+    };
+    drawTick(rInner, -innerHalf, ambi::palette::cyan.withAlpha(0.55f));
+    drawTick(rInner, innerHalf, ambi::palette::cyan.withAlpha(0.55f));
+    drawTick(rOuter, -outerHalf, ambi::palette::magenta.withAlpha(0.85f));
+    drawTick(rOuter, outerHalf, ambi::palette::magenta.withAlpha(0.85f));
 
     // Traces in the classic Lissajous orientation (mono = 45 deg up-right).
     // Screen x ~ R channel, screen up ~ L channel.
