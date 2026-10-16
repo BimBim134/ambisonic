@@ -76,7 +76,7 @@ void AmbiEncoderAudioProcessorEditor::ScopeComponent::drawMidSide(
     for (int i = 0; i < n; ++i) {
         const float mid = midBuf_[static_cast<size_t>(i)];
         const float side = sideBuf_[static_cast<size_t>(i)];
-        const float px = c.x + (mid - side) * R;
+        const float px = c.x - (mid - side) * R;
         const float py = c.y - (mid + side) * R;
         if (px < rect.getX() || px > rect.getRight() || py < rect.getY() ||
             py > rect.getBottom())
