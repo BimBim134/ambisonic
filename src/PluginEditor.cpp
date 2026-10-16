@@ -1,41 +1,49 @@
 #include "PluginEditor.h"
 
-namespace {
-constexpr int kMargin = 14;
-constexpr int kHeaderHeight = 54;
-constexpr int kFooterHeight = 118;
-constexpr int kMeterWidth = 24;
+namespace
+{
+    constexpr int kMargin = 14;
+    constexpr int kHeaderHeight = 54;
+    constexpr int kFooterHeight = 118;
+    constexpr int kMeterWidth = 24;
 
-const juce::Colour kPanel = ambi::palette::panel;
-}  // namespace
+    const juce::Colour kPanel = ambi::palette::panel;
+} // namespace
 
 //==============================================================================
 AmbiEncoderAudioProcessorEditor::ScopeComponent::ScopeComponent(
-    AmbiEncoderAudioProcessor& p)
-    : proc_(p) {
+    AmbiEncoderAudioProcessor &p)
+    : proc_(p)
+{
     startTimerHz(60);
 }
 
-AmbiEncoderAudioProcessorEditor::ScopeComponent::~ScopeComponent() {
+AmbiEncoderAudioProcessorEditor::ScopeComponent::~ScopeComponent()
+{
     stopTimer();
 }
 
-void AmbiEncoderAudioProcessorEditor::ScopeComponent::resized() {
+void AmbiEncoderAudioProcessorEditor::ScopeComponent::resized()
+{
     if (!buffer_.isValid() || buffer_.getWidth() != getWidth() ||
-        buffer_.getHeight() != getHeight()) {
+        buffer_.getHeight() != getHeight())
+    {
         buffer_ = juce::Image(juce::Image::ARGB, juce::jmax(1, getWidth()),
                               juce::jmax(1, getHeight()), true);
-        if (buffer_.isValid()) {
+        if (buffer_.isValid())
+        {
             juce::Graphics(buffer_).fillAll(ambi::palette::panel);
         }
     }
 }
 
-void AmbiEncoderAudioProcessorEditor::ScopeComponent::timerCallback() {
+void AmbiEncoderAudioProcessorEditor::ScopeComponent::timerCallback()
+{
     proc_.readScope(midBuf_.data(), sideBuf_.data(),
                     static_cast<int>(midBuf_.size()));
 
-    if (!buffer_.isValid()) return;
+    if (!buffer_.isValid())
+        return;
 
     juce::Graphics g(buffer_);
 
@@ -48,13 +56,15 @@ void AmbiEncoderAudioProcessorEditor::ScopeComponent::timerCallback() {
 }
 
 void AmbiEncoderAudioProcessorEditor::ScopeComponent::drawMidSide(
-    juce::Graphics& g, juce::Rectangle<float> rect) {
+    juce::Graphics &g, juce::Rectangle<float> rect)
+{
     g.saveState();
     g.reduceClipRegion(rect.toNearestInt());
 
     const juce::Point<float> c = rect.getCentre();
     const float R = juce::jmin(rect.getWidth(), rect.getHeight()) * 0.5f - 10.0f;
-    if (R <= 4.0f) {
+    if (R <= 4.0f)
+    {
         g.restoreState();
         return;
     }
@@ -73,7 +83,8 @@ void AmbiEncoderAudioProcessorEditor::ScopeComponent::drawMidSide(
     // Screen x ~ R channel, screen up ~ L channel.
     g.setColour(ambi::palette::cyan.withAlpha(0.32f));
     const auto n = static_cast<int>(midBuf_.size());
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i)
+    {
         const float mid = midBuf_[static_cast<size_t>(i)];
         const float side = sideBuf_[static_cast<size_t>(i)];
         const float px = c.x - (mid - side) * R;
@@ -93,12 +104,14 @@ void AmbiEncoderAudioProcessorEditor::ScopeComponent::drawMidSide(
 }
 
 void AmbiEncoderAudioProcessorEditor::ScopeComponent::paint(
-    juce::Graphics& g) {
+    juce::Graphics &g)
+{
     auto bounds = getLocalBounds().toFloat();
     juce::Path clip;
     clip.addRoundedRectangle(bounds, 8.0f);
     g.reduceClipRegion(clip, {});
-    if (buffer_.isValid()) {
+    if (buffer_.isValid())
+    {
         g.drawImageAt(buffer_, 0, 0);
     }
     g.setColour(ambi::palette::panelEdge);
@@ -107,14 +120,15 @@ void AmbiEncoderAudioProcessorEditor::ScopeComponent::paint(
 
 //==============================================================================
 AmbiEncoderAudioProcessorEditor::AmbiEncoderAudioProcessorEditor(
-    AmbiEncoderAudioProcessor& p)
+    AmbiEncoderAudioProcessor &p)
     : juce::AudioProcessorEditor(&p),
       processorRef_(p),
       scope_(p),
       gainAttachment_(p.apvts(), AmbiEncoderAudioProcessor::kGainParamId,
                       gainSlider_),
       spreadAttachment_(p.apvts(), AmbiEncoderAudioProcessor::kSpreadParamId,
-                        spreadSlider_) {
+                        spreadSlider_)
+{
     setLookAndFeel(&lookAndFeel_);
 
     titleLabel_.setText("THE POTATE", juce::dontSendNotification);
@@ -135,8 +149,9 @@ AmbiEncoderAudioProcessorEditor::AmbiEncoderAudioProcessorEditor(
     infoLabel_.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(infoLabel_);
 
-    auto setupKnob = [this](juce::Slider& slider, juce::Label& label,
-                            const juce::String& text) {
+    auto setupKnob = [this](juce::Slider &slider, juce::Label &label,
+                            const juce::String &text)
+    {
         slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 18);
         slider.setColour(juce::Slider::rotarySliderFillColourId,
@@ -163,12 +178,14 @@ AmbiEncoderAudioProcessorEditor::AmbiEncoderAudioProcessorEditor(
     startTimerHz(30);
 }
 
-AmbiEncoderAudioProcessorEditor::~AmbiEncoderAudioProcessorEditor() {
+AmbiEncoderAudioProcessorEditor::~AmbiEncoderAudioProcessorEditor()
+{
     stopTimer();
     setLookAndFeel(nullptr);
 }
 
-void AmbiEncoderAudioProcessorEditor::paint(juce::Graphics& g) {
+void AmbiEncoderAudioProcessorEditor::paint(juce::Graphics &g)
+{
     auto bounds = getLocalBounds().toFloat();
     g.fillAll(ambi::palette::background);
 
@@ -182,8 +199,10 @@ void AmbiEncoderAudioProcessorEditor::paint(juce::Graphics& g) {
     drawMeter(g);
 }
 
-void AmbiEncoderAudioProcessorEditor::drawMeter(juce::Graphics& g) {
-    if (meterBounds_.isEmpty()) return;
+void AmbiEncoderAudioProcessorEditor::drawMeter(juce::Graphics &g)
+{
+    if (meterBounds_.isEmpty())
+        return;
 
     g.setColour(ambi::palette::panel);
     g.fillRoundedRectangle(meterBounds_.toFloat(), 3.0f);
@@ -192,7 +211,8 @@ void AmbiEncoderAudioProcessorEditor::drawMeter(juce::Graphics& g) {
 
     auto inner = meterBounds_.toFloat().reduced(2.0f);
     const float p = juce::jlimit(0.0f, 1.0f, displayPeak_);
-    if (p > 0.0f) {
+    if (p > 0.0f)
+    {
         const float h = inner.getHeight() * p;
         auto filled = inner.withHeight(h).withY(inner.getBottom() - h);
         juce::ColourGradient grad(ambi::palette::cyan, inner.getCentreX(),
@@ -202,9 +222,11 @@ void AmbiEncoderAudioProcessorEditor::drawMeter(juce::Graphics& g) {
         g.fillRoundedRectangle(filled, 2.0f);
     }
 
-    if (!clipBounds_.isEmpty()) {
+    if (!clipBounds_.isEmpty())
+    {
         const auto clipF = clipBounds_.toFloat();
-        if (clipLatched_) {
+        if (clipLatched_)
+        {
             g.setColour(ambi::palette::red.withAlpha(0.35f));
             g.fillRoundedRectangle(clipF.expanded(2.0f), 5.0f);
         }
@@ -218,7 +240,8 @@ void AmbiEncoderAudioProcessorEditor::drawMeter(juce::Graphics& g) {
     }
 }
 
-void AmbiEncoderAudioProcessorEditor::resized() {
+void AmbiEncoderAudioProcessorEditor::resized()
+{
     auto b = getLocalBounds().reduced(kMargin);
 
     auto header = b.removeFromTop(kHeaderHeight);
@@ -239,8 +262,9 @@ void AmbiEncoderAudioProcessorEditor::resized() {
     auto left = knobArea.removeFromLeft(knobArea.getWidth() / 2);
     auto right = knobArea;
 
-    auto place = [](juce::Rectangle<int> area, juce::Label& label,
-                    juce::Slider& slider) {
+    auto place = [](juce::Rectangle<int> area, juce::Label &label,
+                    juce::Slider &slider)
+    {
         label.setBounds(area.removeFromTop(18));
         slider.setBounds(area);
     };
@@ -248,17 +272,20 @@ void AmbiEncoderAudioProcessorEditor::resized() {
     place(right, spreadLabel_, spreadSlider_);
 }
 
-void AmbiEncoderAudioProcessorEditor::mouseDown(const juce::MouseEvent&) {
+void AmbiEncoderAudioProcessorEditor::mouseDown(const juce::MouseEvent &)
+{
     processorRef_.clearClip();
     clipLatched_ = false;
     repaint(clipBounds_);
 }
 
-void AmbiEncoderAudioProcessorEditor::timerCallback() {
+void AmbiEncoderAudioProcessorEditor::timerCallback()
+{
     const float peak = processorRef_.getOutputPeak();
     displayPeak_ = juce::jmax(peak, displayPeak_ * 0.86f);
 
-    if (processorRef_.getClipFlag()) {
+    if (processorRef_.getClipFlag())
+    {
         clipLatched_ = true;
     }
 
