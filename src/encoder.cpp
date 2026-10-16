@@ -29,4 +29,24 @@ void ProbeEncoder::process_block(const float* stereo_interleaved,
     }
 }
 
+void encode_planar(const float* const* in, float* const* out,
+                   std::size_t frames, const double* matrix, int num_channels) {
+    const float* left_ch = in[0];
+    const float* right_ch = in[1];
+    const int channels = num_channels;
+    const double* mid_gains = matrix;
+    const double* side_gains = matrix + channels;
+
+    for (std::size_t f = 0; f < frames; ++f) {
+        const double left = static_cast<double>(left_ch[f]);
+        const double right = static_cast<double>(right_ch[f]);
+        const double mid = (left + right) / 2.0;
+        const double side = (left - right) / 2.0;
+        for (int c = 0; c < channels; ++c) {
+            out[c][f] =
+                static_cast<float>(mid * mid_gains[c] + side * side_gains[c]);
+        }
+    }
+}
+
 }  // namespace sde

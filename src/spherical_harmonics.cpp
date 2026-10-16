@@ -49,10 +49,7 @@ double sh_norm(int n, int m) {
 
 }  // namespace
 
-std::vector<double> real_sh_row(int order, double azi, double zen) {
-    const int num_channels = (order + 1) * (order + 1);
-    std::vector<double> row(static_cast<size_t>(num_channels), 0.0);
-
+void real_sh_row_into(int order, double azi, double zen, double* out) {
     const double cos_zen = std::cos(zen);
     int idx = 0;
     for (int n = 0; n <= order; ++n) {
@@ -61,76 +58,72 @@ std::vector<double> real_sh_row(int order, double azi, double zen) {
             const double p = assoc_legendre(n, am, cos_zen);
             const double norm = sh_norm(n, am);
             if (m == 0) {
-                row[static_cast<size_t>(idx)] = norm * p;
+                out[idx] = norm * p;
             } else if (m < 0) {
                 const double sign = (am % 2 == 0) ? 1.0 : -1.0;
-                row[static_cast<size_t>(idx)] =
-                    std::sqrt(2.0) * sign * norm * p * std::sin(am * azi);
+                out[idx] = std::sqrt(2.0) * sign * norm * p * std::sin(am * azi);
             } else {
                 const double sign = (m % 2 == 0) ? 1.0 : -1.0;
-                row[static_cast<size_t>(idx)] =
-                    std::sqrt(2.0) * sign * norm * p * std::cos(m * azi);
+                out[idx] = std::sqrt(2.0) * sign * norm * p * std::cos(m * azi);
             }
             ++idx;
         }
     }
+}
+
+std::vector<double> real_sh_row(int order, double azi, double zen) {
+    const int num_channels = (order + 1) * (order + 1);
+    std::vector<double> row(static_cast<size_t>(num_channels), 0.0);
+    real_sh_row_into(order, azi, zen, row.data());
     return row;
+}
+
+void build_encoder_matrix_into(int order, double spread, double* matrix_out,
+                               int n_azimuth) {
+    const int num_channels = (order + 1) * (order + 1);
+    const double pi = 3.14159265358979323846;
+    const double zen = pi / 2.0;
+
+    for (int i = 0; i < 2 * num_channels; ++i) {
+        matrix_out[i] = 0.0;
+    }
+
+    // sh_row: real SH values for a single azimuth probe (max 64 channels).
+    double sh_row[kMaxAmbisonicChannels];
+
+    for (int i = 0; i < n_azimuth; ++i) {
+        // Azimuth probes spanning -pi/2 .. pi/2 (front half-plane).
+        const double azi =
+            (n_azimuth == 1) ? 0.0
+                             : -pi / 2.0 + (pi * i) / (n_azimuth - 1);
+        real_sh_row_into(order, azi * spread, zen, sh_row);
+
+        // probe_dirs row for this azimuth: [cos(azi), sin(azi)].
+        const double px = std::cos(azi);
+        const double py = std::sin(azi);
+
+        for (int c = 0; c < num_channels; ++c) {
+            matrix_out[c] += px * sh_row[c];
+            matrix_out[num_channels + c] += py * sh_row[c];
+        }
+    }
+
+    // SN3D normalize each channel: n_vec = floor(sqrt(c));
+    // sn3d = 1/sqrt(2*n_vec+1).
+    for (int c = 0; c < num_channels; ++c) {
+        const int n_vec =
+            static_cast<int>(std::floor(std::sqrt(static_cast<double>(c))));
+        const double sn3d = 1.0 / std::sqrt(2.0 * n_vec + 1.0);
+        matrix_out[c] *= sn3d;
+        matrix_out[num_channels + c] *= sn3d;
+    }
 }
 
 std::vector<double> build_encoder_matrix(int order, double spread,
                                          int n_azimuth) {
     const int num_channels = (order + 1) * (order + 1);
-    const double pi = 3.14159265358979323846;
-    const double zen = pi / 2.0;
-
-    // Azimuth probes spanning -pi/2 .. pi/2 (front half-plane).
-    std::vector<double> azimuth(static_cast<size_t>(n_azimuth));
-    if (n_azimuth == 1) {
-        azimuth[0] = 0.0;
-    } else {
-        for (int i = 0; i < n_azimuth; ++i) {
-            azimuth[static_cast<size_t>(i)] =
-                -pi / 2.0 + (pi * i) / (n_azimuth - 1);
-        }
-    }
-
-    // probe_dirs: 2 x n_azimuth, rows [cos(az), sin(az)].
-    std::vector<double> probe_dirs(static_cast<size_t>(2 * n_azimuth));
-    for (int i = 0; i < n_azimuth; ++i) {
-        probe_dirs[static_cast<size_t>(i)] =
-            std::cos(azimuth[static_cast<size_t>(i)]);
-        probe_dirs[static_cast<size_t>(n_azimuth + i)] =
-            std::sin(azimuth[static_cast<size_t>(i)]);
-    }
-
-    // sh_weights: n_azimuth x num_channels.
-    std::vector<double> sh_weights(
-        static_cast<size_t>(n_azimuth) * num_channels);
-    for (int i = 0; i < n_azimuth; ++i) {
-        const auto row = real_sh_row(
-            order, azimuth[static_cast<size_t>(i)] * spread, zen);
-        for (int c = 0; c < num_channels; ++c) {
-            sh_weights[static_cast<size_t>(i) * num_channels + c] =
-                row[static_cast<size_t>(c)];
-        }
-    }
-
-    // M = probe_dirs @ sh_weights, then SN3D normalize each channel.
     std::vector<double> matrix(static_cast<size_t>(2) * num_channels, 0.0);
-    for (int c = 0; c < num_channels; ++c) {
-        for (int r = 0; r < 2; ++r) {
-            double acc = 0.0;
-            for (int i = 0; i < n_azimuth; ++i) {
-                acc += probe_dirs[static_cast<size_t>(r * n_azimuth + i)] *
-                       sh_weights[static_cast<size_t>(i) * num_channels + c];
-            }
-            // n_vec = floor(sqrt(channel_index)); sn3d = 1/sqrt(2*n_vec+1).
-            const int n_vec =
-                static_cast<int>(std::floor(std::sqrt(static_cast<double>(c))));
-            const double sn3d = 1.0 / std::sqrt(2.0 * n_vec + 1.0);
-            matrix[static_cast<size_t>(r * num_channels + c)] = acc * sn3d;
-        }
-    }
+    build_encoder_matrix_into(order, spread, matrix.data(), n_azimuth);
     return matrix;
 }
 

@@ -51,4 +51,17 @@ private:
     double gain_;
 };
 
+// Apply a 2 x num_channels encoder matrix (row-major, as produced by
+// build_encoder_matrix / build_encoder_matrix_into) to planar stereo input.
+//
+// `in`  must point to 2 channel pointers (left, right).
+// `out` must point to `num_channels` channel pointers.
+// `matrix` layout: [0, num_channels) scales mid, [num_channels, 2*num_channels)
+// scales side.
+//
+// Non-allocating and memoryless, so it is safe to call from a real-time thread
+// with any block size.
+void encode_planar(const float* const* in, float* const* out,
+                   std::size_t frames, const double* matrix, int num_channels);
+
 }  // namespace sde
