@@ -7,8 +7,8 @@
 #include "PluginProcessor.h"
 #include "LookAndFeel.h"
 
-// Neon editor: a Mid/Side XY vectorscope, two illuminated rotary knobs (Gain,
-// Spread), a peak meter and a click-to-reset clip LED. Resizable.
+// Neon editor: a Mid/Side XY vectorscope, three illuminated rotary knobs
+// (Gain, Spread, Order), a peak meter and a click-to-reset clip LED. Resizable.
 class AmbiEncoderAudioProcessorEditor : public juce::AudioProcessorEditor,
                                         private juce::Timer {
 public:
@@ -42,14 +42,17 @@ private:
 
     void timerCallback() override;
     void drawMeter(juce::Graphics&);
+    void updateInfoLabel();
 
     AmbiEncoderAudioProcessor& processorRef_;
     ambi::AmbiLookAndFeel lookAndFeel_;
 
     juce::Slider gainSlider_;
     juce::Slider spreadSlider_;
+    juce::Slider orderSlider_;
     juce::Label gainLabel_;
     juce::Label spreadLabel_;
+    juce::Label orderLabel_;
     juce::Label titleLabel_;
     juce::Label infoLabel_;
 
@@ -57,6 +60,7 @@ private:
 
     juce::AudioProcessorValueTreeState::SliderAttachment gainAttachment_;
     juce::AudioProcessorValueTreeState::SliderAttachment spreadAttachment_;
+    juce::AudioProcessorValueTreeState::SliderAttachment orderAttachment_;
 
     juce::Rectangle<int> meterBounds_;
     juce::Rectangle<int> clipBounds_;

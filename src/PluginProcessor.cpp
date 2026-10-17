@@ -17,6 +17,12 @@ namespace
     // Azimuth spread. Default matches sde::kDefaultSpread.
     constexpr float kSpreadMin = 0.0f;
     constexpr float kSpreadMax = 3.0f;
+
+    int clampOrder(float rawOrder)
+    {
+        return juce::jlimit(0, AmbiEncoderAudioProcessor::kMaxOrder,
+                            juce::roundToInt(rawOrder));
+    }
 } // namespace
 
 AmbiEncoderAudioProcessor::AmbiEncoderAudioProcessor()
@@ -24,19 +30,44 @@ AmbiEncoderAudioProcessor::AmbiEncoderAudioProcessor()
                                .withInput("Input",
                                           juce::AudioChannelSet::stereo(), true)
                                .withOutput("Output",
-                                           juce::AudioChannelSet::ambisonic(kOrder),
+                                           juce::AudioChannelSet::ambisonic(
+                                               clampOrder(static_cast<float>(
+                                                   kDefaultOrder))),
                                            true)),
       apvts_(*this, nullptr, kStateType, createLayout())
 {
     gainRaw_ = apvts_.getRawParameterValue(kGainParamId);
     spreadRaw_ = apvts_.getRawParameterValue(kSpreadParamId);
+    orderRaw_ = apvts_.getRawParameterValue(kOrderParamId);
 
-    // Prime the matrix from the default spread.
-    rebuildMatrix(static_cast<double>(sde::kDefaultSpread));
-    builtSpread_ = static_cast<double>(sde::kDefaultSpread);
+    if (auto* orderParam = apvts_.getParameter(kOrderParamId))
+    {
+        orderParam->addListener(this);
+    }
+
+    // Prime the matrix from the default order/spread.
+    rebuildMatrix(getOrder(), static_cast<double>(sde::kDefaultSpread));
 
     // Report zero latency; the encoder is memoryless.
     setLatencySamples(0);
+}
+
+AmbiEncoderAudioProcessor::~AmbiEncoderAudioProcessor()
+{
+    cancelPendingUpdate();
+    if (auto* orderParam = apvts_.getParameter(kOrderParamId))
+    {
+        orderParam->removeListener(this);
+    }
+}
+
+int AmbiEncoderAudioProcessor::getOrder() const
+{
+    if (orderRaw_ == nullptr)
+    {
+        return juce::jlimit(0, kMaxOrder, kDefaultOrder);
+    }
+    return clampOrder(orderRaw_->load());
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout
@@ -54,12 +85,41 @@ AmbiEncoderAudioProcessor::createLayout()
         juce::NormalisableRange<float>(kSpreadMin, kSpreadMax, 0.001f),
         static_cast<float>(sde::kDefaultSpread)));
 
+    layout.add(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{kOrderParamId, 1}, "Order", 0, kMaxOrder,
+        juce::jlimit(0, kMaxOrder, kDefaultOrder)));
+
     return layout;
 }
 
-void AmbiEncoderAudioProcessor::rebuildMatrix(double spread)
+void AmbiEncoderAudioProcessor::rebuildMatrix(int order, double spread)
 {
-    sde::build_encoder_matrix_into(kOrder, spread, matrix_.data());
+    sde::build_encoder_matrix_into(order, spread, matrix_.data());
+    builtOrder_ = order;
+    builtSpread_ = spread;
+}
+
+void AmbiEncoderAudioProcessor::parameterValueChanged(int /*parameterIndex*/,
+                                                      float /*newValue*/)
+{
+    // parameterValueChanged only fires on actual value changes;
+    // handleAsyncUpdate is idempotent and bails if the layout already matches.
+    triggerAsyncUpdate();
+}
+
+void AmbiEncoderAudioProcessor::handleAsyncUpdate()
+{
+    const int order = getOrder();
+    const auto layout = juce::AudioChannelSet::ambisonic(order);
+    auto buses = getBusesLayout();
+    if (buses.getMainOutputChannelSet() == layout)
+    {
+        return;
+    }
+    buses.getChannelSet(false, 0) = layout;
+    // Best effort: hosts that refuse dynamic bus changes keep the old layout;
+    // processBlock still encodes to the current order and silences the rest.
+    setBusesLayout(buses);
 }
 
 void AmbiEncoderAudioProcessor::prepareToPlay(double sampleRate,
@@ -89,13 +149,14 @@ bool AmbiEncoderAudioProcessor::isBusesLayoutSupported(
     }
 
     const auto out = layouts.getMainOutputChannelSet();
+    const int order = getOrder();
     // Preferred: a proper SN3D/ACN ambisonic layout.
-    if (out == juce::AudioChannelSet::ambisonic(kOrder))
+    if (out == juce::AudioChannelSet::ambisonic(order))
     {
         return true;
     }
     // Fallback for hosts that don't negotiate ambisonic speaker arrangements.
-    return out == juce::AudioChannelSet::discreteChannels(kNumChannels);
+    return out == juce::AudioChannelSet::discreteChannels((order + 1) * (order + 1));
 }
 
 void AmbiEncoderAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
@@ -107,7 +168,9 @@ void AmbiEncoderAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     auto output = getBusBuffer(buffer, false, 0);
 
     const int numSamples = output.getNumSamples();
-    const int numOut = juce::jmin(output.getNumChannels(), kNumChannels);
+    const int order = getOrder();
+    const int numChannels = (order + 1) * (order + 1);
+    const int numOut = juce::jmin(output.getNumChannels(), numChannels);
 
     // Silence any output channels we don't drive (shouldn't normally happen).
     for (int ch = numOut; ch < output.getNumChannels(); ++ch)
@@ -123,13 +186,12 @@ void AmbiEncoderAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
         return;
     }
 
-    // Rebuild the encoder matrix only when the spread parameter changes. This
-    // is non-allocating, so it is safe here on the audio thread.
+    // Rebuild the encoder matrix only when the order or spread parameter
+    // changes. This is non-allocating, so it is safe here on the audio thread.
     const double spread = static_cast<double>(spreadRaw_->load());
-    if (spread != builtSpread_)
+    if (spread != builtSpread_ || order != builtOrder_)
     {
-        rebuildMatrix(spread);
-        builtSpread_ = spread;
+        rebuildMatrix(order, spread);
     }
 
     gainSmoothed_.setTargetValue(

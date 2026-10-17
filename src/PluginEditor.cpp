@@ -171,7 +171,9 @@ AmbiEncoderAudioProcessorEditor::AmbiEncoderAudioProcessorEditor(
       gainAttachment_(p.apvts(), AmbiEncoderAudioProcessor::kGainParamId,
                       gainSlider_),
       spreadAttachment_(p.apvts(), AmbiEncoderAudioProcessor::kSpreadParamId,
-                        spreadSlider_)
+                        spreadSlider_),
+      orderAttachment_(p.apvts(), AmbiEncoderAudioProcessor::kOrderParamId,
+                       orderSlider_)
 {
     setLookAndFeel(&lookAndFeel_);
 
@@ -181,13 +183,6 @@ AmbiEncoderAudioProcessorEditor::AmbiEncoderAudioProcessorEditor(
     titleLabel_.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(titleLabel_);
 
-    const juce::String bullet = "\xE2\x80\xA2";
-    infoLabel_.setText("SN3D / ACN  |  ORDER " +
-                           juce::String(AmbiEncoderAudioProcessor::kOrder) +
-                           "  |  " +
-                           juce::String(AmbiEncoderAudioProcessor::kNumChannels) +
-                           " CH",
-                       juce::dontSendNotification);
     infoLabel_.setFont(ambi::AmbiLookAndFeel::regularFont(11.0f));
     infoLabel_.setColour(juce::Label::textColourId, ambi::palette::textDim);
     infoLabel_.setJustificationType(juce::Justification::centredLeft);
@@ -212,6 +207,10 @@ AmbiEncoderAudioProcessorEditor::AmbiEncoderAudioProcessorEditor(
     setupKnob(gainSlider_, gainLabel_, "GAIN");
     gainSlider_.setTextValueSuffix(" dB");
     setupKnob(spreadSlider_, spreadLabel_, "SPREAD");
+    setupKnob(orderSlider_, orderLabel_, "ORDER");
+    orderSlider_.setNumDecimalPlacesToDisplay(0);
+
+    updateInfoLabel();
 
     addAndMakeVisible(scope_);
 
@@ -303,7 +302,8 @@ void AmbiEncoderAudioProcessorEditor::resized()
     scope_.setBounds(b.reduced(4));
 
     auto knobArea = footer.reduced(16, 6);
-    auto left = knobArea.removeFromLeft(knobArea.getWidth() / 2);
+    auto left = knobArea.removeFromLeft(knobArea.getWidth() / 3);
+    auto middle = knobArea.removeFromLeft(knobArea.getWidth() / 2);
     auto right = knobArea;
 
     auto place = [](juce::Rectangle<int> area, juce::Label &label,
@@ -313,7 +313,8 @@ void AmbiEncoderAudioProcessorEditor::resized()
         slider.setBounds(area);
     };
     place(left, gainLabel_, gainSlider_);
-    place(right, spreadLabel_, spreadSlider_);
+    place(middle, spreadLabel_, spreadSlider_);
+    place(right, orderLabel_, orderSlider_);
 }
 
 void AmbiEncoderAudioProcessorEditor::mouseDown(const juce::MouseEvent &)
@@ -323,8 +324,19 @@ void AmbiEncoderAudioProcessorEditor::mouseDown(const juce::MouseEvent &)
     repaint(clipBounds_);
 }
 
+void AmbiEncoderAudioProcessorEditor::updateInfoLabel()
+{
+    const int order = processorRef_.getOrder();
+    const int numChannels = (order + 1) * (order + 1);
+    infoLabel_.setText("SN3D / ACN  |  ORDER " + juce::String(order) + "  |  " +
+                           juce::String(numChannels) + " CH",
+                       juce::dontSendNotification);
+}
+
 void AmbiEncoderAudioProcessorEditor::timerCallback()
 {
+    updateInfoLabel();
+
     const float peak = processorRef_.getOutputPeak();
     displayPeak_ = juce::jmax(peak, displayPeak_ * 0.86f);
 

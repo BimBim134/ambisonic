@@ -6,24 +6,29 @@
 #include <atomic>
 
 #include "encoder.hpp"
+#include "spherical_harmonics.hpp"
 
-// Ambisonic order is fixed at CMake configure time (see AMBI_ORDER in
-// CMakeLists.txt). The default matches sde::kDefaultOrder.
+// Default ambisonic order comes from CMake (see AMBI_ORDER in CMakeLists.txt);
+// the actual order is a runtime parameter in [0, sde::kMaxAmbisonicOrder].
 #ifndef AMBI_ORDER
 #define AMBI_ORDER 3
 #endif
 
 // Stereo -> SN3D ambisonic encoder wrapped as a JUCE plugin. The DSP core is
 // reused verbatim from the command-line tool; this class only adapts JUCE's
-// planar float buffers to the shared encoder matrix.
-class AmbiEncoderAudioProcessor : public juce::AudioProcessor {
+// planar float buffers to the shared encoder matrix. The ambisonic order is
+// selectable at runtime; the output bus is reconfigured when it changes.
+class AmbiEncoderAudioProcessor : public juce::AudioProcessor,
+                                  private juce::AsyncUpdater,
+                                  private juce::AudioProcessorParameter::Listener {
 public:
-    static constexpr int kOrder = AMBI_ORDER;
-    static constexpr int kNumChannels = (kOrder + 1) * (kOrder + 1);
+    static constexpr int kDefaultOrder = AMBI_ORDER;
+    static constexpr int kMaxOrder = sde::kMaxAmbisonicOrder;
+    static constexpr int kMaxChannels = sde::kMaxAmbisonicChannels;
     static constexpr int kNumInputChannels = sde::ProbeEncoder::kNumInputChannels;
 
     AmbiEncoderAudioProcessor();
-    ~AmbiEncoderAudioProcessor() override = default;
+    ~AmbiEncoderAudioProcessor() override;
 
     //==========================================================================
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
@@ -71,21 +76,37 @@ public:
     // chronological order. mid = (L+R)/2, side = (L-R)/2.
     void readScope(float* midOut, float* sideOut, int count) const;
 
+    // Currently selected ambisonic order (reads the Order parameter).
+    int getOrder() const;
+    int getNumChannels() const { return (getOrder() + 1) * (getOrder() + 1); }
+
     static constexpr const char* kGainParamId = "gain";
     static constexpr const char* kSpreadParamId = "spread";
+    static constexpr const char* kOrderParamId = "order";
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
-    // Rebuild matrix_ from `spread` without allocating. Audio-thread only.
-    void rebuildMatrix(double spread);
+    // Rebuild matrix_ from `order`/`spread` without allocating.
+    // Audio-thread only.
+    void rebuildMatrix(int order, double spread);
+
+    // AudioProcessorParameter::Listener: request an output-bus reconfiguration
+    // on the message thread when the Order parameter changes.
+    void parameterValueChanged(int parameterIndex, float newValue) override;
+    void parameterGestureChanged(int, bool) override {}
+    void handleAsyncUpdate() override;
 
     juce::AudioProcessorValueTreeState apvts_;
     std::atomic<float>* gainRaw_ = nullptr;
     std::atomic<float>* spreadRaw_ = nullptr;
+    std::atomic<float>* orderRaw_ = nullptr;
 
-    // Row-major 2 x kNumChannels encoder matrix: [0, N) mid, [N, 2N) side.
-    std::array<double, static_cast<std::size_t>(2 * kNumChannels)> matrix_{};
+    // Row-major 2 x num_channels encoder matrix (num_channels =
+    // (order+1)^2): [0, N) mid, [N, 2N) side. Sized for the maximum order so
+    // rebuilds never reallocate.
+    std::array<double, static_cast<std::size_t>(2 * kMaxChannels)> matrix_{};
+    int builtOrder_ = -1;      // order currently baked into matrix_
     double builtSpread_ = -1.0;  // spread currently baked into matrix_
 
     juce::SmoothedValue<float> gainSmoothed_;
